@@ -1,0 +1,98 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+
+# -------------------------
+# DADOS (Tabela 1)
+# -------------------------
+# Taxa de resfriamento (°C/s)
+Tdot = np.array([26.4, 10.3, 6.6, 4.4, 3.3, 2.5, 2.1, 1.7, 1.4, 1.2], dtype=float)
+
+# Limite de escoamento (MPa)
+sigma_e = np.array([159.6, 152.0, 147.1, 147.9, 146.2, 140.5, 139.4, 138.3, 139.8, 136.6], dtype=float)
+
+# -------------------------
+# TRANSFORMAÇÃO PARA LOG (natural)
+# -------------------------
+X = np.log(Tdot)      # ln(Tdot)
+Y = np.log(sigma_e)   # ln(sigma_e)
+
+# -------------------------
+# AJUSTE OLS EM LOG–LOG
+# -------------------------
+# Usamos polyfit com cov=True para obter a matriz de covariância
+b, alpha = np.polyfit(X, Y, 1)  # Atenção: polyfit retorna [slope, intercept] quando grau=1
+p, cov = np.polyfit(X, Y, 1, cov=True)
+b, alpha = p[0], p[1]
+
+# Erros-padrão dos parâmetros (no espaço log)
+b_se     = math.sqrt(cov[0, 0])
+alpha_se = math.sqrt(cov[1, 1])
+
+# Volta ao espaço original: a = exp(alpha)
+a = math.exp(alpha)
+a_se = a * alpha_se  # Delta method
+
+# Métricas de ajuste (em log–log)
+Y_pred = alpha + b * X
+SS_res = np.sum((Y - Y_pred) ** 2)
+SS_tot = np.sum((Y - np.mean(Y)) ** 2)
+R_squared = 1.0 - SS_res / SS_tot if SS_tot > 0 else np.nan
+r_pearson = np.corrcoef(X, Y)[0, 1]
+
+# -------------------------
+# IMPRESSÕES (inclui ln dos dados)
+# -------------------------
+print("=== Dados (Tabela 1) com ln ===")
+for td, se, x, y in zip(Tdot, sigma_e, X, Y):
+    print(f"Tdot={td:6.3f} °C/s | sigma_e={se:6.2f} MPa | ln(Tdot)={x:8.5f} | ln(sigma_e)={y:8.5f}")
+
+print("\n=== Ajuste OLS em log–log: Y = alpha + b*X ===")
+print(f"b (slope)     = {b:.6f} ± {b_se:.6f}")
+print(f"alpha         = {alpha:.6f} ± {alpha_se:.6f}")
+print(f"a = exp(alpha)= {a:.6f} ± {a_se:.6f}")
+print(f"R² (log–log)  = {R_squared:.4f}")
+print(f"r (log–log)   = {r_pearson:.4f}")
+
+# -------------------------
+# CURVAS PARA PLOTAGEM
+# -------------------------
+# Espaço log–log: reta no plano (X,Y)
+X_fit = np.linspace(X.min() - 0.1, X.max() + 0.1, 200)
+Y_fit = alpha + b * X_fit
+
+# Espaço original (opcional, se quiser prever sigma para Tdot contínuo):
+Tdot_fit   = np.linspace(Tdot.min(), Tdot.max(), 400)
+sigma_fit  = a * (Tdot_fit ** b)
+
+# -------------------------
+# GRÁFICO (log–log) — pontos em (ln Tdot, ln sigma_e) e reta ajustada
+# -------------------------
+plt.figure(figsize=(8, 6))
+plt.plot(X, Y, 'o', label='Dados (ln)')
+plt.plot(X_fit, Y_fit, '-', label='Ajuste linear (ln–ln)')
+plt.xlabel(r'$\ln(\dot{T})$')
+plt.ylabel(r'$\ln(\sigma_e)$')
+plt.title('Ajuste de potência por OLS em log–log')
+textstr = '\n'.join((
+    r'$b=%.5f \pm %.5f$' % (b, b_se),
+    r'$\alpha=%.5f \pm %.5f$' % (alpha, alpha_se),
+    r'$a=e^{\alpha}=%.3f \pm %.3f$' % (a, a_se),
+    r'$R^2=%.4f$' % (R_squared,),
+    r'$r=%.4f$' % (r_pearson,),
+))
+plt.text(0.05, 0.95, textstr, transform=plt.gca().transAxes,
+         fontsize=10, va='top',
+         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# -------------------------
+# RESULTADO FINAL (forma de potência)
+# -------------------------
+print("\n=== Modelo de potência final ===")
+print("sigma_e (MPa) = a * (Tdot)^{b}")
+print("a = {:.6f} ± {:.6f}".format(a, a_se))
+print("b = {:.6f} ± {:.6f}".format(b, b_se))
