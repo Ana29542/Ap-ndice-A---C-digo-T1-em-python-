@@ -1,0 +1,103 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import savgol_filter
+
+# -------------------------
+# DADOS (9 pontos de T1)
+# -------------------------
+X = np.array([
+    7.4, 7.6, 7.8, 
+    8.0, 8.2, 8.4, 
+    8.6, 8.8, 9.0
+], dtype=float)
+
+Y = np.array([
+    577.2027, 575.9365, 573.6074, 
+    571.1806, 568.7988, 566.4697, 
+    565.2562, 562.8294, 559.2605
+], dtype=float)
+
+# -------------------------
+# PARÂMETROS
+# -------------------------
+TL = 568.0          # Liquidus
+SG_WINDOW = 9      # janela (ímpar) — recomendada p/ T1
+SG_POLY   = 1       # ordem do polinômio
+
+PLOT_SG_CURVE = True
+TANGENT_HALF_SPAN = 0.0  # extensão (s) da reta tangente desenhada em torno de t*
+
+# -------------------------
+# FUNÇÕES AUXILIARES
+# -------------------------
+def find_crossing_index(x, y, TL):
+    for i in range(len(y) - 1):
+        if (y[i] >= TL and y[i+1] < TL) or (y[i] <= TL and y[i+1] > TL):
+            return i
+    return None
+
+def crossing_time_linear(x0, y0, x1, y1, TL):
+    if y1 == y0:
+        return np.nan
+    return x0 + (TL - y0) * (x1 - x0) / (y1 - y0)
+
+# -------------------------
+# CÁLCULOS
+# -------------------------
+i_cross = find_crossing_index(X, Y, TL)
+if i_cross is None:
+    raise RuntimeError("Não há cruzamento com TL nos dados.")
+
+t_cross = crossing_time_linear(X[i_cross], Y[i_cross], X[i_cross+1], Y[i_cross+1], TL)
+
+dt = float(np.mean(np.diff(X)))
+Y_sg    = savgol_filter(Y, window_length=SG_WINDOW, polyorder=SG_POLY,
+                        deriv=0, delta=dt, mode='interp')
+dYdt_sg = savgol_filter(Y, window_length=SG_WINDOW, polyorder=SG_POLY,
+                        deriv=1, delta=dt, mode='interp')
+
+# Derivada "em TL" ≈ derivada no índice imediatamente antes do cruzamento
+slope_sg = float(dYdt_sg[i_cross])
+
+# Reta tangente em torno de t*
+x0 = X[i_cross]
+y0 = Y_sg[i_cross]
+x_tan = np.linspace(t_cross - TANGENT_HALF_SPAN, t_cross + TANGENT_HALF_SPAN, 2)
+y_tan = y0 + slope_sg * (x_tan - x0)
+
+# -------------------------
+# SAÍDAS (console)
+# -------------------------
+print("=== T1 — Savitzky–Golay ===")
+print(f"TL (°C): {TL:.3f}")
+print(f"i_cross = {i_cross}  ->  (t_i, T_i)=({X[i_cross]:.4f}, {Y[i_cross]:.4f}); "
+      f"(t_{i_cross+1}, T_{i_cross+1})=({X[i_cross+1]:.4f}, {Y[i_cross+1]:.4f})")
+print(f"t* (interp.) = {t_cross:.6f} s")
+print(f"dT/dt |_SG @ TL ≈ {slope_sg:.6f} °C/s  (janela={SG_WINDOW}, p={SG_POLY})")
+
+# -------------------------
+# GRÁFICO
+# -------------------------
+plt.figure(figsize=(8, 6))
+plt.plot(X, Y, 'o', label='Dados (T1)')
+if PLOT_SG_CURVE:
+    plt.plot(X, Y_sg, '-', label='Temperatura suavizada (SG)')
+
+plt.axhline(TL, linestyle='--', linewidth=1, label='TL')
+plt.axvline(t_cross, linestyle=':', linewidth=1, label='t* (interp.)')
+
+plt.xlabel('t [s]')
+plt.ylabel('T [°C]')
+plt.title('T1 — dT/dt em TL (SG)')
+box = "\n".join((
+    rf"dT/dt |_SG @ TL ≈ {slope_sg:.4f} °C/s",
+    rf"t*: {t_cross:.5f} s",
+    rf"janela={SG_WINDOW}, pol={SG_POLY}",
+))
+plt.text(0.04, 0.96, box, transform=plt.gca().transAxes,
+         fontsize=10, va='top',
+         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
