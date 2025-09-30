@@ -1,0 +1,107 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import savgol_filter
+
+# -------------------------
+# DADOS (21 pontos de T2)
+# -------------------------
+X = np.array([
+    119.4, 119.6, 119.8, 120.0, 120.2,
+    120.4, 120.6, 120.8, 121.0, 121.2,
+    121.4, 121.6, 121.8, 122.0, 122.2,
+    122.4, 122.6, 122.8, 123.0, 123.2, 123.4
+], dtype=float)
+
+Y = np.array([
+    569.6443, 570.7596, 569.6443, 569.5916, 569.6179,
+    570.7332, 568.4049, 568.4049, 568.4313, 568.4313,
+    568.4049, 567.1919, 568.4049, 568.4313, 567.1655,
+    568.3785, 568.4313, 566.0501, 567.2183, 567.1391, 567.2183
+], dtype=float)
+
+# -------------------------
+# PARÂMETROS
+# -------------------------
+TL = 568.0          # Liquidus
+SG_WINDOW = 21      # janela (ímpar) — recomendado p/ T2
+SG_POLY   = 3       # ordem do polinômio
+PLOT_SG_CURVE = True   # True = plota curva SG; False = só a reta tangente
+TANGENT_HALF_SPAN = 0.8  # extensão (s) da reta tangente desenhada em torno de t*
+
+# -------------------------
+# FUNÇÕES AUXILIARES
+# -------------------------
+def find_crossing_index(x, y, TL):
+    for i in range(len(y) - 1):
+        if (y[i] >= TL and y[i+1] < TL) or (y[i] <= TL and y[i+1] > TL):
+            return i
+    return None
+
+def crossing_time_linear(x0, y0, x1, y1, TL):
+    if y1 == y0:
+        return np.nan
+    return x0 + (TL - y0) * (x1 - x0) / (y1 - y0)
+
+# -------------------------
+# CÁLCULOS
+# -------------------------
+i_cross = find_crossing_index(X, Y, TL)
+if i_cross is None:
+    raise RuntimeError("Não há cruzamento com TL nos dados.")
+
+t_cross = crossing_time_linear(X[i_cross], Y[i_cross], X[i_cross+1], Y[i_cross+1], TL)
+
+dt = float(np.mean(np.diff(X)))
+# Suavização (temperatura) e derivada (°C/s) por SG ao longo de TODA a série
+Y_sg    = savgol_filter(Y, window_length=SG_WINDOW, polyorder=SG_POLY, deriv=0, delta=dt, mode='interp')
+dYdt_sg = savgol_filter(Y, window_length=SG_WINDOW, polyorder=SG_POLY, deriv=1, delta=dt, mode='interp')
+
+# Derivada "em TL" ≈ derivada no índice i_cross (centro da janela que abraça TL)
+slope_sg = float(dYdt_sg[i_cross])
+# Ponto por onde passa a tangente: (x0, y0) próximo de TL
+x0 = X[i_cross]
+y0 = Y_sg[i_cross]   # usa a temperatura suavizada como valor no centro
+
+# Construir a reta tangente em torno de t*
+x_tan = np.linspace(t_cross - TANGENT_HALF_SPAN, t_cross + TANGENT_HALF_SPAN, 2)
+y_tan = y0 + slope_sg * (x_tan - x0)
+
+# -------------------------
+# SAÍDAS
+# -------------------------
+print("=== Savitzky–Golay (derivada local) ===")
+print(f"TL (°C): {TL:.3f}")
+print(f"i_cross = {i_cross}  ->  (t_i, T_i)=({X[i_cross]:.4f}, {Y[i_cross]:.4f}); "
+      f"(t_{i_cross+1}, T_{i_cross+1})=({X[i_cross+1]:.4f}, {Y[i_cross+1]:.4f})")
+print(f"t* (interpolado) = {t_cross:.6f} s")
+print(f"dT/dt |_SG @ TL ≈ {slope_sg:.6f} °C/s  (janela={SG_WINDOW}, p={SG_POLY})")
+
+# -------------------------
+# GRÁFICO
+# -------------------------
+plt.figure(figsize=(8, 6))
+plt.plot(X, Y, 'o', label='Dados (T2)')
+
+if PLOT_SG_CURVE:
+    plt.plot(X, Y_sg, '-', label='Temperatura suavizada (SG)')
+
+plt.plot(x_tan, y_tan, '--', label='Reta tangente em TL (SG)')
+plt.axhline(TL, linestyle='--', linewidth=1, label='TL')
+plt.axvline(t_cross, linestyle=':', linewidth=1, label='t* (interp.)')
+
+plt.xlabel('t [s]')
+plt.ylabel('T [°C]')
+plt.title('T2 — dT/dt em TL (SG)')
+box = "\n".join((
+    rf"dT/dt |_SG @ TL ≈ {slope_sg:.4f} °C/s",
+    rf"t*: {t_cross:.5f} s",
+    rf"janela={SG_WINDOW}, pol={SG_POLY}",
+))
+plt.text(0.04, 0.96, box, transform=plt.gca().transAxes,
+         fontsize=10, va='top',
+         bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
